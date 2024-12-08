@@ -2,11 +2,18 @@ package controlador;
 
 import Conexion.MySQLConnection;
 import java.awt.Color;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.ItemEvent;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 
 public class ControladorPrincipal {
@@ -165,6 +172,10 @@ public class ControladorPrincipal {
             while (rs.next()) {
                 modelo.addElement(rs.getString(valorColumna));
             }
+            
+         comboBox.setEditable(true);
+        habilitarAutocompletado(comboBox);
+        configurarComboBox(comboBox, modelo);
         } catch (SQLException ex) {
             mostrarError("Error al llenar el ComboBox: ", ex.getMessage());
         }
@@ -209,4 +220,179 @@ public class ControladorPrincipal {
             componente.setEnabled(enabled);
         }
     }
+    
+    
+    
+    protected void habilitarAutocompletado(JComboBox<String> comboBox) {
+    JTextField textField = (JTextField) comboBox.getEditor().getEditorComponent();
+    DefaultComboBoxModel<String> modeloOriginal = (DefaultComboBoxModel<String>) comboBox.getModel();
+
+    Timer timer = new Timer(300, e -> filtrarOpciones(comboBox, modeloOriginal));
+    timer.setRepeats(false); // Solo se ejecuta una vez por cada evento
+
+    textField.getDocument().addDocumentListener(new DocumentListener() {
+        @Override
+        public void insertUpdate(DocumentEvent e) {
+            timer.restart(); // Reinicia el temporizador con cada cambio
+        }
+
+        @Override
+        public void removeUpdate(DocumentEvent e) {
+            timer.restart();
+        }
+
+        @Override
+        public void changedUpdate(DocumentEvent e) {
+            timer.restart();
+        }
+    });
+
+    comboBox.addActionListener(e -> {
+        Object selectedItem = comboBox.getSelectedItem();
+        if (selectedItem != null) {
+            textField.setText(selectedItem.toString());
+        }
+    });
+}
+
+
+
+private String ultimoTextoIngresado = "";  // Variable para guardar el último texto ingresado
+
+private void filtrarOpciones(JComboBox<String> comboBox, DefaultComboBoxModel<String> modeloOriginal) {
+    SwingUtilities.invokeLater(() -> {
+        JTextField textField = (JTextField) comboBox.getEditor().getEditorComponent();
+        String textoIngresado = textField.getText().toLowerCase();
+
+        // Si el texto no ha cambiado, no filtramos
+        if (textoIngresado.equals(ultimoTextoIngresado)) {
+            return;
+        }
+
+        // Guardamos el nuevo texto ingresado
+        ultimoTextoIngresado = textoIngresado;
+
+        // Crear un modelo filtrado
+        DefaultComboBoxModel<String> modeloFiltrado = new DefaultComboBoxModel<>();
+        for (int i = 0; i < modeloOriginal.getSize(); i++) {
+            String opcion = modeloOriginal.getElementAt(i).toLowerCase();
+            if (opcion.contains(textoIngresado)) {
+                modeloFiltrado.addElement(modeloOriginal.getElementAt(i));
+            }
+        }
+
+        // Solo actualizamos el modelo si hay resultados
+        if (modeloFiltrado.getSize() > 0) {
+            // Solo actualizar el modelo si es diferente del actual
+            if (comboBox.getModel() != modeloFiltrado) {
+                comboBox.setModel(modeloFiltrado);
+            }
+
+            // Mostrar el popup solo si no está visible
+            if (!comboBox.isPopupVisible()) {
+                comboBox.showPopup();
+            }
+        } else {
+            // Si no hay coincidencias, ocultamos el popup si está visible
+            if (comboBox.isPopupVisible()) {
+                comboBox.hidePopup();
+            }
+        }
+
+        // Restaurar el texto ingresado y la selección
+        JTextField nuevoTextField = (JTextField) comboBox.getEditor().getEditorComponent();
+        nuevoTextField.setText(textoIngresado);
+
+        // Prevenir la selección automática cuando no hay coincidencias
+        if (comboBox.getItemCount() > 0 && comboBox.getSelectedItem() == null) {
+            comboBox.setSelectedItem(textoIngresado);
+        }
+    });
+}
+
+
+
+private void configurarComboBox(JComboBox<String> comboBox, DefaultComboBoxModel<String> modeloOriginal) {
+    // Agregar el ItemListener para manejar la selección de una opción
+    comboBox.addItemListener(e -> {
+        if (e.getStateChange() == ItemEvent.SELECTED) {
+            // Ocultar el popup inmediatamente después de seleccionar una opción
+            comboBox.hidePopup();
+        }
+    });
+
+    // Listener para convertir el texto a mayúsculas mientras se escribe
+    JTextField textField = (JTextField) comboBox.getEditor().getEditorComponent();
+    textField.getDocument().addDocumentListener(new DocumentListener() {
+        @Override
+        public void insertUpdate(DocumentEvent e) {
+            convertirAMayusculas(textField);
+        }
+
+        @Override
+        public void removeUpdate(DocumentEvent e) {
+            convertirAMayusculas(textField);
+        }
+
+        @Override
+        public void changedUpdate(DocumentEvent e) {
+            convertirAMayusculas(textField);
+        }
+    });
+
+    // Validación cuando el campo pierde el foco (el usuario no seleccionó ninguna opción válida)
+    comboBox.getEditor().getEditorComponent().addFocusListener(new FocusAdapter() {
+        @Override
+        public void focusLost(FocusEvent e) {
+            validarSeleccion(comboBox, modeloOriginal);
+        }
+    });
+
+    // Aquí llamamos al método filtrarOpciones para aplicar el filtro según lo que el usuario escribe
+    comboBox.getEditor().getEditorComponent().addKeyListener(new KeyAdapter() {
+        @Override
+        public void keyReleased(KeyEvent e) {
+            filtrarOpciones(comboBox, modeloOriginal);  // Filtramos las opciones al escribir
+        }
+    });
+}
+
+// Método para convertir el texto a mayúsculas
+private void convertirAMayusculas(JTextField textField) {
+    // Usa invokeLater para asegurarte de que el cambio de texto se haga fuera de la notificación
+    SwingUtilities.invokeLater(() -> {
+        String texto = textField.getText().toUpperCase();  // Convertir el texto a mayúsculas
+        if (!texto.equals(textField.getText())) {  // Solo actualiza si el texto es diferente
+            textField.setText(texto);  // Establecer el texto convertido
+        }
+    });
+}
+
+
+
+
+// Método para validar que la opción seleccionada esté en las disponibles
+private void validarSeleccion(JComboBox<String> comboBox, DefaultComboBoxModel<String> modeloOriginal) {
+    String textoIngresado = (String) comboBox.getEditor().getItem();
+
+    boolean esValida = false;
+
+    // Recorremos el modelo para ver si el texto coincide con alguna opción
+    for (int i = 0; i < modeloOriginal.getSize(); i++) {
+        if (modeloOriginal.getElementAt(i).equalsIgnoreCase(textoIngresado)) {
+            esValida = true;
+            break;
+        }
+    }
+
+    // Si el texto no coincide con ninguna opción, mostramos un mensaje o revertimos la selección
+    if (!esValida) {
+        JOptionPane.showMessageDialog(comboBox, "Debes seleccionar una opción válida.", "Selección inválida", JOptionPane.WARNING_MESSAGE);
+        comboBox.setSelectedItem("");  // Restaurar a la opción vacía o default
+    }
+}
+
+
+
+
 }
